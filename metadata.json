@@ -1,0 +1,8 @@
+{
+  "name": "SAM GNOME Integration",
+  "description": "Integrates the SAM package management system into GNOME",
+  "uuid": "sam-gnome@stillhq.io",
+  "shell-version": [
+    "46"
+  ]
+}
