@@ -146,15 +146,45 @@ export default class SamGnome extends Extension {
             console.warn(action.package_id, action.app_name)
         }
 
-        this.notification = new MessageTray.Notification({
-            source: this.notification_source,
-            title: _(
+        if (!(this.notification)) {
+            this.notification = new MessageTray.Notification({
+                source: this.notification_source,
+                title: `${action.notification_message()} (${this.queue_position}/${this.queue_length - 1 + this.queue_position})`,
+                body: _(`Progress: ${action.progress}%`),
+                urgency: urgency
+            });
+            this.notification.resident = true;
+            this.notification_source.addNotification(this.notification);
+        } else {
+            this.notification.title = _(
                 `${action.notification_message()} (${this.queue_position}/${this.queue_length - 1 + this.queue_position})`
-            ),
-            body: _(`Progress: ${action.progress}%`),
-            urgency: urgency
-        });
-        this.notification_source.addNotification(this.notification)
+            )
+            this.notification.body = _(`Progress: ${action.progress}%`);
+        }
+
+        for (let banner of Main.messageTray._bannerBin.get_children()) {
+            if (banner.notification.source.policy instanceof NotificationPolicy) {
+                banner.connect("clicked", (banner) => {banner.visible = false;})
+                banner.canClose = () => {return false;};
+                banner._header.closeButton.disconnect(
+                    GObject.signal_handler_find(banner._header.closeButton, { signalId: 'clicked' })
+                );
+                banner._header.closeButton.connect(
+                    // Switch to delete messageTray notification to prevent memory leak
+                    "clicked", (button) => {banner.visible = false;}
+                )
+                // banner._header.closeButton.visible = false;
+            }
+        }
+        let calendar_sections = Main.panel.statusArea.dateMenu._messageList._sectionList.get_children()
+        for (let section of calendar_sections) {
+            for (let message of section._messages) {
+                if (message.notification.source.policy instanceof NotificationPolicy) {
+                    message._header.closeButton.visible = false;
+                    message.canClose = () => {return false;};
+                }   
+            }
+        }
     }
 
     get_current_action(proxy) {
@@ -180,32 +210,37 @@ export default class SamGnome extends Extension {
         return null;
     }
 
-    signal_received(proxy, _senderName, signalName, _parameters) {
+    signal_received(proxy, _senderName, signalName, parameters) {
         console.warn(signalName)
         if (signalName === "queue_changed") {
+
             let action = this.get_current_action(proxy);
+
+            if (this.queue_length === 0 || action === null) {
+                this.queue_position = 0;
+                this.current_id = null;
+                if (this.notification !== null) {
+                    this.notification.destroy();
+                    this.notification = null;
+                }
+                return;
+            } else if (!(this.current_id === action.package_id)) {
+                this.queue_position = this.queue_position + 1;
+                this.current_id = action.package_id;
+            }
+
             if (!(action))  {
                 return;
             }
 
-            if (signalName === "queue_changed") {
-                if (this.queue_length === 0) {
-                    this.queue_position = 0;
-                    this.current_id = null;
-                } else if (!(this.current_id === action.package_id)) {
-                    this.queue_position = this.queue_position + 1;
-                    this.current_id = action.package_id;
-                }
-            }
-
             this.send_notification(action)
         } else if (signalName === "progress_changed") {
-            if (this.notification) {
-                this.notification.update(this.notification.body, _(`Progress: ${this.progress}%`));
+            if (!(this.notification == null)) {
+                this.notification.body = _(`Progress: ${parameters.deep_unpack()[0]}%`);
             }
-
         }
     }
+
     enable() {
         console.warn("Enabled")
         this.proxy = Gio.DBusProxy.new_for_bus_sync(
